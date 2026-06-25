@@ -28,3 +28,6 @@ Then codes in my laptop will analyze the signals and produce sounds that matches
 |screws
 |sodering kit| 1| https://www.amazon.com/gp/product/B087767KNW/ref=ewc_pr_img_2?smid=A19YGYI63H9AEE&th=1| 12.74 |
 ## Acknowledgements
+### Wiring & interfacing tutorials for esp32  
+- https://randomnerdtutorials.com/esp32-pinout-reference-gpios/  
+- https://randomnerdtutorials.com/esp32-load-cell-hx711/  
