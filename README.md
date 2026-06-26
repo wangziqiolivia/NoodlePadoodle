@@ -2,9 +2,13 @@
 An electric Guzheng (traditional Chinese instrument with 21 strings) that you can play in dorms with headphones, carry around easily and tune effortlessly.    
 ## My motivation  
 I'm an international student from China studying in the United States. I've been playing Guzheng since five years old, but because it's too big, I couldn't bring it with me when I came to the US. Thus, I want to build my own Guzheng that is more portable and can be played in dorms :-) Also, it would be super cool to make an electric version of a traditional Chinese instrument!!
-## Picture  
-## Demo link
-## Features
+## Pictures
+### My Guzheng
+### The traditional Guzheng 
+<img width="1239" height="804" alt="image" src="https://github.com/user-attachments/assets/f012b191-0185-4fce-a4dc-c530b6d32f5b" />  
+
+## Demo link  
+## Features  
 - Small size: 40cm * 90cm * 2cm compared with traditional Guzheng 40cm * 163cm * 9cm
 - Does not disturb others: the sound is generated in the laptop, and users can use a headphone
 - Easy to tune and change the key: all can be done on the laptop
