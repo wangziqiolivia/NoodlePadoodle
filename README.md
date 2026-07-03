@@ -17,6 +17,8 @@ I'm an international student from China studying in the United States. I've been
 ## How it works
 Every string is connected to a 5kg load cell that senses the change in pull force of the string. The sensor is then connected to a HX711 to amplify the signal. Then an ESP32 board connects the HX711 to a laptop.  
 Then codes in my laptop will analyze the signals and produce sounds that matches the operation of the player, considering the strength and techniques applied.
+I want to build a physics-informed model to reconstruct the sound effects of the instrument with the help of the data collected and physics knowledge.  
+
 ### Materials
 |Name | Quanity| Link | Total price (USD) |
 |-----|--------| -----|-------------------|
