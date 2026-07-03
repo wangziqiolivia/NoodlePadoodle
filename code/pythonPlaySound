@@ -1,9 +1,0 @@
-import pygame
-pygame.mixer.init()
-
-def play(path):
-    sound = pygame.mixer.Sound(path)
-    sound.play()
-    pygame.time.wait(int(sound.get_length() * 1000))
-
-play(r"C:\Users\wya48\Desktop\Guzheng project\NoodlePadoodle\audio\M_E\MdE_m.wav")
