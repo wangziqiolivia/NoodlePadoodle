@@ -19,7 +19,7 @@ Every string is connected to a 5kg load cell that senses the change in pull forc
 Then codes in my laptop will analyze the signals and produce sounds that matches the operation of the player, considering the strength and techniques applied.
 I want to build a physics-informed model to reconstruct the sound effects of the instrument with the help of the data collected and physics knowledge.  
 
-### Materials
+## Materials
 |Name | Quanity| Link | Total price (USD) |
 |-----|--------| -----|-------------------|
 |ESP32 |2|https://amazon.com/gp/product/B0DNYR973V/ref=ox_sc_act_title_2?smid=A1VTL661FOEJB1&psc=1|15.99|
@@ -32,6 +32,10 @@ I want to build a physics-informed model to reconstruct the sound effects of the
 |700 mm V-slot Aluminum extrusion profile |8*1|https://www.amazon.com/gp/product/B0DY7G17BK/ref=ewc_pr_img_4?smid=A2DGLVBBDAJTOF&psc=1|39.99|
 |sodering kit| 1| https://www.amazon.com/gp/product/B087767KNW/ref=ewc_pr_img_2?smid=A19YGYI63H9AEE&th=1| 12.74 |
 |total price |-|-|201.89|
+
+## My plan  
+Because all the materials will arrive on July 6th the earliest, I will try to finish coding on my one-string demo first, and then assemble and connect the rest of the strings to my laptop on Monday!  
+
 ## Acknowledgements
 ### Wiring & interfacing tutorials for esp32  
 - https://randomnerdtutorials.com/esp32-pinout-reference-gpios/  
