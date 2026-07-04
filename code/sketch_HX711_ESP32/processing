@@ -1,0 +1,48 @@
+from scipy.signal import butter
+import serial
+import time
+
+#basically we can ignore the natural viberation and just pinpoint the start of the viberation for the initial energy 
+
+BASELINE_INITIAL = -450000 #needs to be tuned
+baseline = BASELINE_INITIAL
+# let f(BASELINE_INITIAL) = original pitch of string
+energy = 0
+
+while ser.readline():
+    line = ser.readline().decode(errors="ignore").strip()
+    if not line:
+        continue
+    try:
+        value = int(line)
+    except ValueError:
+        continue
+    baseline = baseline + 0.01 * (value - baseline)
+    pitch = f(baseline)
+    energy *= 0.99 #needs to be tuned
+
+    if viberation_start():
+        play_attack();
+        energy += k*(value - baseline)
+        volume = m * energy
+        start_sustain(pitch, volume)
+
+    sustain(pitch, volume)
+
+def f(baseline):
+    # Code to calculate the pitch based on the baseline value
+    return pitch
+
+def viberation_start():
+    if condition:# Code to detect if the string is vibrating
+        return True
+    return False 
+
+def play_attack():
+    # Code to play the attack sound
+    pass
+
+def sustain(pitch, volume):
+    #butter_sustain_pitch = pitch
+    #butter_sustain_volume = volume
+    pass
