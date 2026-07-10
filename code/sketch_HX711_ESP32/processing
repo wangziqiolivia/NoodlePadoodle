@@ -1,48 +1,42 @@
-from scipy.signal import butter
+import pylibrb
 import serial
-import time
 
-#basically we can ignore the natural viberation and just pinpoint the start of the viberation for the initial energy 
+# Broooo I'm gonna make the simpliest demo possible
+# this shit is making me crash out :(((
+#flow: detect a hill high enough --- either find the peak which is smaller than 625000 or if the hill is too high which indicates that it comes from the left hand, which ever comes first
 
-BASELINE_INITIAL = -450000 #needs to be tuned
-baseline = BASELINE_INITIAL
-# let f(BASELINE_INITIAL) = original pitch of string
-energy = 0
+if point - baseline > 10000:
+    num1 = point
+    num2 = serial.readInt() #turn this into the correct syntax
+    find_peak = 0
+    while(find_peak == 0):
+        if num2 > 625000:
+            pitch = string_pitch * PITCH_FACTOR * (point/depth)
+            #I need to update the sound's pitch
+            break
+        num3 = serial.readInt() #turn this into the correct syntax
+        if (num1 < num2) && (num2 > num3):
+            peak = num2
+            find_peak = 1
+        num1 = num2
+        num2 = num3
+   
 
-while ser.readline():
-    line = ser.readline().decode(errors="ignore").strip()
-    if not line:
-        continue
-    try:
-        value = int(line)
-    except ValueError:
-        continue
-    baseline = baseline + 0.01 * (value - baseline)
-    pitch = f(baseline)
-    energy *= 0.99 #needs to be tuned
+if peak < 625000:    
+    stopAllSoundsInThisString() # revise this, when there are multiple strings
+    initialEnergy = peak
+    playAttack(initialEnergy)
+    startSound(initialEnergy)
 
-    if viberation_start():
-        play_attack();
-        energy += k*(value - baseline)
-        volume = m * energy
-        start_sustain(pitch, volume)
+#after breaking out of the while loop, I need to keep updating the sustain sound's pitch by keep reading the current value until a new hill starts to form
 
-    sustain(pitch, volume)
+def playAttack(initialEnergy):
+    #play the attack sound based on the initial energy with conversion factor
 
-def f(baseline):
-    # Code to calculate the pitch based on the baseline value
-    return pitch
-
-def viberation_start():
-    if condition:# Code to detect if the string is vibrating
-        return True
-    return False 
-
-def play_attack():
-    # Code to play the attack sound
-    pass
-
-def sustain(pitch, volume):
-    #butter_sustain_pitch = pitch
-    #butter_sustain_volume = volume
-    pass
+def startSound(initialEnergy):
+    #play the sustain sound based on the initial energy with conversion factor
+    sustainLength = initialEnergy / standard * STANDARD_SUSTAIN_LENGTH
+    volume =  initialEnergy / standard * STANDARD_VOLUME
+    #to make things easy all the formulas are linear
+    #Strech sound length to sustainLength and volume to volume and then play the sound
+    #the pitch will be altered in real time

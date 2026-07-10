@@ -1,0 +1,63 @@
+import serial
+import time
+import matplotlib.pyplot as plt
+
+ser = serial.Serial("COM7", 115200, timeout=1)
+time.sleep(2)
+
+string1 = []
+string2 = []
+
+start = time.time()
+
+# 采集5秒
+while time.time() - start < 5:
+
+    line = ser.readline().decode(errors="ignore").strip()
+
+    if not line:
+        continue
+
+    try:
+        value1, value2 = map(int, line.split(","))
+
+        string1.append(abs(value1))
+        string2.append(abs(value2))
+
+    except ValueError:
+        continue
+
+ser.close()
+
+# 横轴：采样编号
+x = list(range(len(string1)))
+
+plt.figure(figsize=(18, 6))
+
+# 原始曲线
+plt.plot(x, string1, label="String 1", linewidth=1)
+plt.plot(x, string2, label="String 2", linewidth=1)
+
+# 每个采样点画scatter并标数值
+for i in range(0, len(string1), 1):
+    plt.scatter(x[i], string1[i], color="red", s=8)
+    plt.text(
+        x[i],
+        string1[i] + 3000,
+        str(string1[i]),
+        fontsize=5,
+        rotation=90,
+        ha="center"
+    )
+
+plt.xlim(0, 40)          # 放大前500个采样点，可自行修改
+plt.ylim(500000, 800000)  # 根据你的数据范围修改
+
+plt.xlabel("Sample Index")
+plt.ylabel("Absolute HX711 Value")
+plt.title("HX711 Signal (5 Seconds)")
+plt.grid(True)
+plt.legend()
+
+plt.tight_layout()
+plt.show()

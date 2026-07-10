@@ -1,0 +1,32 @@
+import serial
+import time
+
+# 修改成你的串口号
+ser = serial.Serial("COM7", 115200)
+
+# 等ESP32重启完成
+time.sleep(2)
+
+print("Reading...")
+
+while True:
+    try:
+        line = ser.readline().decode("utf-8", errors="ignore").strip()
+
+        if not line:
+            continue
+
+        value1, value2 = map(int, line.split(","))
+        value1 = abs(value1)
+        value2 = abs(value2)    
+        
+        print(value1, value2)
+
+    except ValueError:
+        continue
+
+    except KeyboardInterrupt:
+        print("Stopped.")
+        break
+
+ser.close()

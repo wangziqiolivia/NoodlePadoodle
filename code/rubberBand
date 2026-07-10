@@ -1,2 +1,283 @@
-import pylibrb
-print(dir(pylibrb))
+import msvcrt
+import threading
+
+import numpy as np
+import sounddevice as sd
+import soundfile as sf
+
+
+# ==========================================================
+# CONFIG
+# ==========================================================
+
+AUDIO_PATH = (
+    r"C:\Users\wya48\Desktop\Guzheng project"
+    r"\NoodlePadoodle\audio\M_E\MdE_m.wav"
+)
+
+LOOP_START_MS = 180
+BLOCK_SIZE = 128
+
+# 每次按键改变 0.2 个半音
+PITCH_STEP = 0.02
+
+# 按弦最低为原音，最高升高 1 个半音
+MIN_SEMITONES = 0.0
+MAX_SEMITONES = 1.0
+
+
+# ==========================================================
+# LOAD AUDIO
+# ==========================================================
+
+audio, sample_rate = sf.read(
+    AUDIO_PATH,
+    dtype="float32",
+    always_2d=True
+)
+
+if len(audio) < 2:
+    raise ValueError("音频文件太短，无法播放。")
+
+channels = audio.shape[1]
+
+loop_start = int(sample_rate * LOOP_START_MS / 1000)
+loop_start = max(0, min(loop_start, len(audio) - 2))
+
+loop_length = len(audio) - loop_start
+
+print(f"音频长度: {len(audio)} samples")
+print(f"采样率: {sample_rate} Hz")
+print(f"声道数: {channels}")
+print(f"循环起点: {loop_start} samples")
+
+
+# ==========================================================
+# PLAYBACK STATE
+# ==========================================================
+
+state_lock = threading.Lock()
+
+playing = False
+position = 0.0
+
+semitones = 0.0
+pitch_ratio = 1.0
+
+
+def semitones_to_ratio(value):
+    return 2.0 ** (value / 12.0)
+
+
+def set_pitch(new_semitones):
+    global semitones, pitch_ratio
+
+    # 限制到 0.00～1.00 半音
+    new_semitones = max(
+        MIN_SEMITONES,
+        min(MAX_SEMITONES, new_semitones)
+    )
+
+    # 对齐到 0.02 半音档位，避免浮点误差
+    new_semitones = round(new_semitones / PITCH_STEP) * PITCH_STEP
+    new_semitones = round(new_semitones, 2)
+
+    with state_lock:
+        semitones = new_semitones
+        pitch_ratio = semitones_to_ratio(semitones)
+
+    print(
+        f"\r按弦升音: +{semitones:.2f} 半音"
+        f" / 上限 +{MAX_SEMITONES:.2f} 半音"
+        f" | ratio: {pitch_ratio:.6f}     ",
+        end="",
+        flush=True
+    )
+
+def increase_pitch():
+    with state_lock:
+        current_pitch = semitones
+
+    set_pitch(current_pitch + PITCH_STEP)
+
+
+def decrease_pitch():
+    with state_lock:
+        current_pitch = semitones
+
+    set_pitch(current_pitch - PITCH_STEP)
+
+
+def trigger_audio():
+    global playing, position
+
+    with state_lock:
+        position = 0.0
+        playing = True
+
+    print("\n触发音频")
+
+
+def stop_audio():
+    global playing
+
+    with state_lock:
+        playing = False
+
+    print("\n停止播放")
+
+
+# ==========================================================
+# AUDIO CALLBACK
+# ==========================================================
+
+def audio_callback(outdata, frames, time_info, status):
+    global position
+
+    outdata.fill(0)
+
+    if status:
+        print(f"\n音频状态: {status}")
+
+    with state_lock:
+        if not playing:
+            return
+
+        current_position = position
+        current_ratio = pitch_ratio
+
+        positions = (
+            current_position
+            + np.arange(frames, dtype=np.float64) * current_ratio
+        )
+
+        overflow = positions >= len(audio)
+
+        positions[overflow] = (
+            loop_start
+            + np.mod(
+                positions[overflow] - loop_start,
+                loop_length
+            )
+        )
+
+        index_0 = np.floor(positions).astype(np.int64)
+        fraction = positions - index_0
+
+        index_1 = index_0 + 1
+        index_1[index_1 >= len(audio)] = loop_start
+
+        samples_0 = audio[index_0]
+        samples_1 = audio[index_1]
+
+        output = (
+            samples_0 * (1.0 - fraction[:, None])
+            + samples_1 * fraction[:, None]
+        )
+
+        outdata[:] = output.astype(np.float32)
+
+        next_position = current_position + frames * current_ratio
+
+        if next_position >= len(audio):
+            next_position = (
+                loop_start
+                + (
+                    (next_position - loop_start)
+                    % loop_length
+                )
+            )
+
+        position = next_position
+
+
+# ==========================================================
+# KEYBOARD
+# ==========================================================
+
+def read_key():
+    key = msvcrt.getwch()
+
+    if key in ("\x00", "\xe0"):
+        second_key = msvcrt.getwch()
+
+        arrow_keys = {
+            "H": "UP",
+            "P": "DOWN",
+            "K": "LEFT",
+            "M": "RIGHT",
+        }
+
+        return arrow_keys.get(second_key, "UNKNOWN")
+
+    return key
+
+
+def print_controls():
+    print()
+    print("================================================")
+    print("       GUZHENG KEYBOARD PITCH TEST")
+    print("================================================")
+    print("空格       从头触发音频")
+    print("↑          升高 0.02 个半音")
+    print("↓          降低 0.02 个半音")
+    print("R          恢复原始音高")
+    print("X          停止声音")
+    print("Q          退出程序")
+    print()
+    print("按弦音高范围：0.00 ～ +1.00 半音")
+    print("每次变化：0.02 半音")
+    print("================================================")
+    print()
+
+
+# ==========================================================
+# MAIN
+# ==========================================================
+
+def main():
+    print_controls()
+    set_pitch(0.0)
+
+    try:
+        with sd.OutputStream(
+            samplerate=sample_rate,
+            channels=channels,
+            dtype="float32",
+            blocksize=BLOCK_SIZE,
+            latency="low",
+            callback=audio_callback
+        ):
+            while True:
+                key = read_key()
+
+                if key == " ":
+                    trigger_audio()
+
+                elif key == "UP":
+                    increase_pitch()
+
+                elif key == "DOWN":
+                    decrease_pitch()
+
+                elif key.lower() == "r":
+                    set_pitch(0.0)
+
+                elif key.lower() == "x":
+                    stop_audio()
+
+                elif key.lower() == "q":
+                    print("\n退出程序")
+                    break
+
+    except KeyboardInterrupt:
+        print("\n程序已停止")
+
+    except sd.PortAudioError as error:
+        print("\n音频设备错误：")
+        print(error)
+        print("\n可以尝试把 BLOCK_SIZE 从 128 改成 256。")
+
+
+if __name__ == "__main__":
+    main()

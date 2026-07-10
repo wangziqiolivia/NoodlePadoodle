@@ -1,0 +1,7 @@
+import sounddevice as sd
+import soundfile as sf
+
+audio, fs = sf.read(r"C:\Users\wya48\Desktop\Guzheng project\NoodlePadoodle\audio\M_E\MdE_m.wav")
+
+sd.play(audio, fs)
+sd.wait()

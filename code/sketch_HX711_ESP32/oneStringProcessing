@@ -1,0 +1,162 @@
+import serial
+import time
+import pylibrb
+
+# ==========================================================
+# Configuration
+# ==========================================================
+
+PORT = "COM7"
+BAUDRATE = 115200
+
+HILL_THRESHOLD = 10000          # Minimum rise above baseline
+LEFT_HAND_THRESHOLD = 625000    # If exceeded, treat as left hand pressure
+
+BASELINE = 500000
+
+STANDARD_VOLUME = 1.0
+STANDARD_SUSTAIN = 2.0
+
+STANDARD_ENERGY = 70000
+
+STRING_PITCH = 1.0
+PITCH_FACTOR = 0.5
+
+# ==========================================================
+# Serial
+# ==========================================================
+
+ser = serial.Serial(PORT, BAUDRATE, timeout=1)
+
+def read_value():
+    """
+    Read one HX711 value from Arduino.
+    Arduino should print one integer every sample.
+    """
+    while True:
+        try:
+            line = ser.readline().decode().strip()
+            if line:
+                return int(line)
+        except:
+            pass
+
+# ==========================================================
+# Audio (temporary placeholders)
+# ==========================================================
+
+def stop_string():
+    print("Stop previous sustain")
+
+def play_attack(volume):
+    print(f"Attack volume = {volume:.2f}")
+
+def start_sustain(volume, sustain):
+    print(f"Sustain volume = {volume:.2f}")
+    print(f"Sustain length = {sustain:.2f}")
+
+def update_pitch(pitch):
+    print(f"Pitch = {pitch:.3f}")
+
+# ==========================================================
+# Peak Detection
+# ==========================================================
+
+def detect_peak(first_point):
+
+    num1 = first_point
+    num2 = read_value()
+
+    while True:
+
+        # Left hand is pushing harder
+        if num2 > LEFT_HAND_THRESHOLD:
+            return None, num2
+
+        num3 = read_value()
+
+        # Local maximum
+        if num1 < num2 and num2 > num3:
+            return num2, None
+
+        num1 = num2
+        num2 = num3
+
+# ==========================================================
+# Sound
+# ==========================================================
+
+def trigger_string(peak):
+
+    energy = max(0, peak - BASELINE)
+
+    volume = energy / STANDARD_ENERGY
+    volume = min(volume, 1.0)
+
+    sustain = (
+        energy
+        / STANDARD_ENERGY
+        * STANDARD_SUSTAIN
+    )
+
+    stop_string()
+
+    play_attack(volume)
+
+    start_sustain(volume, sustain)
+
+# ==========================================================
+# Main Loop
+# ==========================================================
+
+print("Ready!")
+
+while True:
+
+    point = read_value()
+
+    # Hill starts
+    if point - BASELINE > HILL_THRESHOLD:
+
+        peak, left_hand = detect_peak(point)
+
+        # -------------------------
+        # Left hand pitch control
+        # -------------------------
+        if left_hand is not None:
+
+            pitch = (
+                STRING_PITCH
+                * (1 + PITCH_FACTOR *
+                   (left_hand - BASELINE) / STANDARD_ENERGY)
+            )
+
+            update_pitch(pitch)
+
+            continue
+
+        # -------------------------
+        # Pluck detected
+        # -------------------------
+        if peak is not None:
+
+            trigger_string(peak)
+
+            # Continue updating pitch
+            while True:
+
+                current = read_value()
+
+                # New pluck begins
+                if current - BASELINE > HILL_THRESHOLD:
+                    break
+
+                if current > LEFT_HAND_THRESHOLD:
+
+                    pitch = (
+                        STRING_PITCH
+                        * (1 + PITCH_FACTOR *
+                           (current - BASELINE) / STANDARD_ENERGY)
+                    )
+
+                    update_pitch(pitch)
