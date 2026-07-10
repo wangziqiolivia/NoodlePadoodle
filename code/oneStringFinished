@@ -13,23 +13,23 @@ import soundfile as sf
 PORT = "COM7"
 BAUD = 115200
 
-BASELINE = 500000
+BASELINE = 478000
 
 # 超过基础值多少，开始寻找峰值
 PEAK_THRESHOLD = 10000
 
-# 超过该数值，进入左手按弦模式
-LEFT_HAND_THRESHOLD = 700000
+# 超过基础值 110000，进入左手按弦模式
+LEFT_HAND_THRESHOLD = BASELINE + 70000  #540000
 
-# 稍低的退出阈值，避免在 700000 附近反复进出模式
-LEFT_HAND_RELEASE_THRESHOLD = 690000
+# 退出左手模式
+# 必须低于进入阈值，形成迟滞区间
+LEFT_HAND_RELEASE_THRESHOLD = LEFT_HAND_THRESHOLD - 10000
 
-# 达到这个压力时，认为已经升高完整的 1 个半音
-# 根据实际左手最大按压力调整
-LEFT_HAND_MAX_FORCE = 800000
+# 达到该压力时升高完整的一个半音
+LEFT_HAND_MAX_FORCE = LEFT_HAND_THRESHOLD + 110000 #650000
 
 # 右手标准拨弦力度
-STANDARD_FORCE = 525000
+STANDARD_FORCE = 20000 + BASELINE #490000
 
 AUDIO_PATH = (
     r"C:\Users\wya48\Desktop\Guzheng project"
@@ -43,22 +43,13 @@ MAX_SEMITONES = 1.0
 # 音高显示精度
 PITCH_DISPLAY_STEP = 0.02
 
-# 指数平滑时间常数，单位为秒
-#
-# 数值越小：
-#     跟随越快，但变化可能比较突然
-#
-# 数值越大：
-#     更加平滑，但反应稍慢
-#
-# 指数曲线特点：
-#     刚开始斜率最大，之后斜率逐渐减小
+# 你之前调整好的平滑时间
 PITCH_SMOOTH_TIME = 0.10
 
 # 音频缓冲区
 BLOCK_SIZE = 128
 
-# 音量限制，避免过大力度造成爆音
+# 音量限制
 MIN_VOLUME = 0.05
 MAX_VOLUME = 1.0
 
@@ -114,7 +105,6 @@ def read_force():
             return int(line)
 
         except ValueError:
-            # 忽略非整数内容
             continue
 
         except serial.SerialException as error:
@@ -142,7 +132,7 @@ current_semitones = 0.0
 # 左手压力要求到达的目标音高
 target_semitones = 0.0
 
-# 每次重新拨弦增加编号，防止旧 callback 覆盖新音符位置
+# 每次重新拨弦增加编号
 note_generation = 0
 
 
@@ -166,15 +156,13 @@ def semitones_to_ratio(semitones):
 
 def force_to_semitones(force):
     """
-    把左手压力线性映射到 0～1 个半音。
+    将左手压力映射到 0～1 个半音。
 
-    LEFT_HAND_THRESHOLD:
-        0 个半音，也就是弦原来的音高
+    670000:
+        0 个半音
 
-    LEFT_HAND_MAX_FORCE:
+    800000:
         1 个半音
-
-    超过最大压力仍然只会输出 1 个半音。
     """
 
     force_range = (
@@ -215,8 +203,8 @@ def set_target_pitch(semitones):
     """
     设置目标音高。
 
-    这里只更新目标，不直接跳到目标。
-    audio callback 会用指数曲线平滑连接。
+    不会直接跳到目标音高，
+    audio callback 会自动平滑连接。
     """
 
     global target_semitones
@@ -232,10 +220,6 @@ def set_target_pitch(semitones):
 
 
 def reset_pitch_immediately():
-    """
-    新拨弦时立刻回到原始音高。
-    """
-
     global current_semitones
     global target_semitones
 
@@ -258,7 +242,6 @@ def audio_callback(
     global play_position
     global current_semitones
 
-    # 默认输出静音
     outdata.fill(0)
 
     with state_lock:
@@ -273,16 +256,8 @@ def audio_callback(
 
         local_generation = note_generation
 
-    # ------------------------------------------------------
-    # 指数平滑音高
-    #
-    # pitch(t) =
-    # target + (start - target) * exp(-t / tau)
-    #
-    # 特点：
-    # 刚开始变化最快，随后斜率越来越小。
-    # ------------------------------------------------------
-
+    # 指数平滑：
+    # 刚开始斜率大，随后斜率逐渐变小
     sample_times = (
         np.arange(frames, dtype=np.float64)
         / sample_rate
@@ -324,7 +299,7 @@ def audio_callback(
             )
         )
 
-    # 安全限制，绝不低于原音或高于一个半音
+    # 限制在原音到升高一个半音之间
     semitone_curve = np.clip(
         semitone_curve,
         MIN_SEMITONES,
@@ -337,13 +312,11 @@ def audio_callback(
         MAX_SEMITONES
     )
 
-    # 每一个音频采样点都有自己的播放速度
     pitch_ratios = np.power(
         2.0,
         semitone_curve / 12.0
     )
 
-    # 根据变化中的播放速度计算音频读取位置
     cumulative_positions = np.empty(
         frames,
         dtype=np.float64
@@ -361,7 +334,6 @@ def audio_callback(
         + cumulative_positions
     )
 
-    # 只播放仍在音频范围内的部分
     valid_mask = source_positions < len(audio)
     valid_count = int(np.count_nonzero(valid_mask))
 
@@ -384,7 +356,6 @@ def audio_callback(
         samples_0 = audio[index_0]
         samples_1 = audio[index_1]
 
-        # 线性插值，避免小数播放位置产生明显噪声
         output_samples = (
             samples_0 * (1.0 - fractions)
             + samples_1 * fractions
@@ -392,7 +363,6 @@ def audio_callback(
 
         output_samples *= local_volume
 
-        # 防止音量过大造成削波
         output_samples = np.clip(
             output_samples,
             -1.0,
@@ -411,7 +381,6 @@ def audio_callback(
         or next_position >= len(audio)
     )
 
-    # 只有当前 callback 仍属于同一个音符时才更新状态
     with state_lock:
         if note_generation == local_generation:
             current_semitones = end_semitones
@@ -455,14 +424,13 @@ def trigger_string(peak):
     print(f"Volume = {volume:.3f}")
     print("==============================")
 
-    # 直接重新设置播放状态，不再等待旧声音结束
     with state_lock:
         note_generation += 1
 
         play_position = 0.0
         note_volume = volume
 
-        # 每次新拨弦从原音开始
+        # 每次拨弦从原音开始
         current_semitones = 0.0
         target_semitones = 0.0
 
@@ -477,8 +445,8 @@ def left_hand_mode(initial_force):
     """
     左手按弦模式。
 
-    串口数据虽然比较稀疏，但这里只负责更新目标音高。
-    真正的连续曲线由 audio_callback 高频生成。
+    串口数据只更新目标音高，
+    音频线程在数据点之间生成平滑曲线。
     """
 
     print()
@@ -487,7 +455,7 @@ def left_hand_mode(initial_force):
     force = initial_force
 
     while True:
-        # 左手松开
+        # 低于 660000 才退出
         if force < LEFT_HAND_RELEASE_THRESHOLD:
             set_target_pitch(0.0)
 
@@ -503,7 +471,6 @@ def left_hand_mode(initial_force):
 
         set_target_pitch(target)
 
-        # 显示时对齐到 0.02 半音精度
         displayed_pitch = (
             round(target / PITCH_DISPLAY_STEP)
             * PITCH_DISPLAY_STEP
@@ -532,15 +499,14 @@ def detect_peak(first):
     """
     三点山峰检测。
 
-    如果寻找峰值期间压力超过左手阈值，
-    立即进入左手模式，并且不会触发新的拨弦声音。
+    在寻找右手峰值期间，一旦数据达到 670000，
+    就进入左手模式，不触发新的拨弦声音。
     """
 
     a = first
     b = read_force()
 
     while True:
-        # 左手按压力超过阈值
         if b >= LEFT_HAND_THRESHOLD:
             left_hand_mode(b)
             return None
@@ -551,8 +517,7 @@ def detect_peak(first):
             left_hand_mode(c)
             return None
 
-        # 三点山峰：
-        # a 上升到 b，再从 b 下降到 c
+        # 三点峰值检测
         if a < b and b > c:
             return b
 
@@ -571,6 +536,14 @@ def main():
     print(" Ready!")
     print("=================================")
     print()
+    print(
+        f"Left-hand entry threshold: "
+        f"{LEFT_HAND_THRESHOLD}"
+    )
+    print(
+        f"Left-hand release threshold: "
+        f"{LEFT_HAND_RELEASE_THRESHOLD}"
+    )
     print(
         f"Left-hand pitch range: "
         f"{MIN_SEMITONES:.2f} to "
@@ -601,7 +574,7 @@ def main():
                 peak = detect_peak(point)
 
                 if peak is not None:
-                    # 再次保证左手压力绝不会被当成拨弦
+                    # 只有峰值低于左手阈值才作为右手拨弦
                     if peak < LEFT_HAND_THRESHOLD:
                         trigger_string(peak)
                     else:
