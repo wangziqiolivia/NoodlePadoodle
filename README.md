@@ -39,4 +39,5 @@ Because all the materials will arrive on July 6th the earliest, I will try to fi
 ## Acknowledgements
 ### Wiring & interfacing tutorials for esp32  
 - https://randomnerdtutorials.com/esp32-pinout-reference-gpios/  
-- https://randomnerdtutorials.com/esp32-load-cell-hx711/  
+- https://randomnerdtutorials.com/esp32-load-cell-hx711/
+- https://lastminuteengineers.com/esp32-pinout-reference/#esp32-pinout
