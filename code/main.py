@@ -120,7 +120,7 @@ def trigger_string(peak):
 
 def left_hand_mode():
 
-    print("\n******** LEFT HAND ********")
+    print("\n******* LEFT HAND ********")
 
     while True:
 
