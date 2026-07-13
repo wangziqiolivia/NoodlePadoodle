@@ -1,0 +1,11 @@
+Name,Purchased quantity,Used quantity,Package breakdown,Link,Total price (USD),Notes
+ESP32,2,1,1pack ¡Á 2 units,https://amazon.com/gp/product/B0DNYR973V/ref=ox_sc_act_title_2?smid=A1VTL661FOEJB1&psc=1,15.99,One ESP32 was ultimately enough.
+HX711 + load cell,2,,2 packs ¡Á 1 unit,https://amazon.com/dp/B09K7G3477?ref=ppx_yo2ov_dt_b_fed_asin_title,9.99,
+HX711 + load cell,20,,4 packs ¡Á 5 units,https://amazon.com/gp/product/B09VYSHW16/ref=ewc_pr_img_3?smid=A27MCP768Z76HQ&psc=1,63.96,Four load cells were lost 
+Guzheng strings,21,17,1pack ¡Á 21 strings,https://www.amazon.com/dp/B09BVVC9LP?ref=ppx_yo2ov_dt_b_fed_asin_title,15.55,Only 17 strings were used because four load cells were lost.
+F-F Dupont wires,120,,3 packs ¡Á 40 wires,https://www.amazon.com/gp/product/B07GCY6CH7/ref=sw_img_1?smid=&th=1,7.98,
+F-M Dupont wires,40,,1 pack ¡Á 40 wires,https://www.amazon.com/gp/product/B0BRTHR2RL/ref=ewc_pr_img_1?smid=A2XLLJ8HYD6SMA&th=1,3.99,
+Breadboard kit,1,,1 kit,https://www.amazon.com/gp/product/B0GVD11LSS/ref=ewc_pr_img_2?smid=AKJTXD7UD2AFM&psc=1,7.29,
+700 mm V-slot aluminum extrusion profile,8,,8 profiles,https://www.amazon.com/gp/product/B0DY7G17BK/ref=ewc_pr_img_4?smid=A2DGLVBBDAJTOF&psc=1,39.99,The width doesn¡¯t have to be this long but the price is the best when you purchase eight of them in the same length
+Soldering kit,1,,1 kit,https://www.amazon.com/gp/product/B087767KNW/ref=ewc_pr_img_2?smid=A19YGYI63H9AEE&th=1,12.74,
+TOTAL,,,,,177.48,Sum of listed purchase prices.
