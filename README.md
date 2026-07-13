@@ -8,8 +8,9 @@ I'm an international student from China studying in the United States. I've been
 https://github.com/user-attachments/assets/ef05cc21-928e-400d-a834-1ba05163664a
 #### Some pictures
 <img width="1280" height="1707" alt="afc1a4ef0554323734a6b1be0fc4f1ca" src="https://github.com/user-attachments/assets/3ad95d43-76ed-458b-892f-898131cb6be8" />
-<img width="1707" height="1280" alt="becd36a59b36f32def657f0ffad531c0" src="https://github.com/user-attachments/assets/c99d6d76-0a61-494c-8721-79032cfb4e47" />
-#### Wiring
+<img width="1707" height="1280" alt="becd36a59b36f32def657f0ffad531c0" src="https://github.com/user-attachments/assets/c99d6d76-0a61-494c-8721-79032cfb4e47" />  
+
+Wiring
 <img width="1405" height="1337" alt="HX711toESP32" src="https://github.com/user-attachments/assets/be6ed44a-123b-4604-aa4a-f5ecb7c2f762" />
 
 
