@@ -12,6 +12,7 @@ https://github.com/user-attachments/assets/ef05cc21-928e-400d-a834-1ba05163664a
 
 Wiring
 <img width="1405" height="1337" alt="HX711toESP32" src="https://github.com/user-attachments/assets/be6ed44a-123b-4604-aa4a-f5ecb7c2f762" />
+<img width="4694" height="1873" alt="wiringCompleteGuide" src="https://github.com/user-attachments/assets/788fc026-27f0-4213-a5ec-9c423f0c71fe" />
 
 
 ### The traditional Guzheng 
