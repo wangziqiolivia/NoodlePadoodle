@@ -48,7 +48,7 @@ Then codes in my laptop will analyze the signals and produce sounds that matches
 I later found out that one ESP32 was enough and also I only used 17 strings because 4 load cells were lost unfortunately.
 
 ## Guide for my repository
-Check the AllStringsAdaptiveFinished.py for the final, adaptive code. It's an eight-string verion because I haven't resolved the bugs for the other nine strings yet, but it's very easy to modify the code into a 21-string version.  
+Check the _14StringsFinished.py for the final, adaptive code. It's a 14 verion because I haven't resolved the bugs for the other strings yet, but it's very easy to modify the code into a 21-string version.  
 Guzheng sound samples are in the 21StringsSample folder, and the program uses wav format audio. The M_E folder has sounds of many different techiniques played on the Guzheng.  
 
 ## Acknowledgements
