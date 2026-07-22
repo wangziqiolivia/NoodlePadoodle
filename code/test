@@ -1,0 +1,1332 @@
+import math
+import threading
+import time
+from collections import deque
+from dataclasses import dataclass
+
+import numpy as np
+import serial
+import sounddevice as sd
+import soundfile as sf
+
+
+# ==========================================================
+# SERIAL CONFIG
+# ==========================================================
+
+PORT = "COM7"
+BAUD = 115200
+
+# Arduino 每行输出 14 个数据
+NUM_STRINGS = 14
+
+# Arduino 输出已经重新编号：
+#
+# 第 1～11 列  = String 1～11
+# 第 12 列    = 原 String 14，现在命名为 String 12
+# 第 13 列    = 原 String 15，现在命名为 String 13
+# 第 14 列    = 原 String 16，现在命名为 String 14
+#
+# Python 内部直接使用新编号 1～14。
+
+STRING_NUMBERS = list(range(1, 15))
+
+
+# ==========================================================
+# BASELINES
+# ==========================================================
+
+# 程序启动后会先进行一次 3 秒静止校准，
+# 因此这里的值只是启动前的默认值。
+#
+# 已知旧值先保留；未知弦填 0。
+# 初始校准完成后，14 个值都会被真实平均值替换。
+
+BASELINES = [
+    462515,
+    -86831,
+    163550,
+    -51682,
+    351050,
+    318435,
+    287377,
+    -169274,
+    -174983,
+    492852,
+    230950,
+    -167493,
+    465837,
+    419281     # String 14（原 String 16）
+]
+
+
+# ==========================================================
+# AUDIO PATHS
+# ==========================================================
+
+# 顺序必须是新编号 String 1～14。
+#
+# 空路径不会导致程序退出。
+# 对应弦仍会被检测，但暂时不会发声。
+# 填入 WAV 路径以后就会正常播放。
+
+AUDIO_PATHS = [
+    r"C:\Users\wya48\Desktop\Guzheng project\NoodlePadoodle\audio\21stringsSample\wav\G6.wav", # String 1 
+    r"C:\Users\wya48\Desktop\Guzheng project\NoodlePadoodle\audio\21stringsSample\wav\G5.wav", # String 2 
+    r"C:\Users\wya48\Desktop\Guzheng project\NoodlePadoodle\audio\21stringsSample\wav\G3.wav", # String 3 
+    r"C:\Users\wya48\Desktop\Guzheng project\NoodlePadoodle\audio\21stringsSample\wav\G2.wav", # String 4 
+    r"C:\Users\wya48\Desktop\Guzheng project\NoodlePadoodle\audio\21stringsSample\wav\G1.wav", # String 5 
+    r"C:\Users\wya48\Desktop\Guzheng project\NoodlePadoodle\audio\21stringsSample\wav\Z6.wav", # String 6 
+    r"C:\Users\wya48\Desktop\Guzheng project\NoodlePadoodle\audio\21stringsSample\wav\Z5.wav", # String 7 
+    r"C:\Users\wya48\Desktop\Guzheng project\NoodlePadoodle\audio\21stringsSample\wav\Z3.wav", # String 8 
+    r"C:\Users\wya48\Desktop\Guzheng project\NoodlePadoodle\audio\21stringsSample\wav\Z2.wav", # String 9 
+    r"C:\Users\wya48\Desktop\Guzheng project\NoodlePadoodle\audio\21stringsSample\wav\Z1.wav", # String 10 
+    r"C:\Users\wya48\Desktop\Guzheng project\NoodlePadoodle\audio\21stringsSample\wav\D6.wav", # String 11 
+    r"C:\Users\wya48\Desktop\Guzheng project\NoodlePadoodle\audio\21stringsSample\wav\D5.wav", # String 12（原 String 14） 
+    r"C:\Users\wya48\Desktop\Guzheng project\NoodlePadoodle\audio\21stringsSample\wav\D3.wav", # String 13（原 String 15） 
+    r"C:\Users\wya48\Desktop\Guzheng project\NoodlePadoodle\audio\21stringsSample\wav\D2.wav", # String 14（原 String 16
+]
+
+
+# ==========================================================
+# FORCE CONFIG
+# ==========================================================
+
+# 峰值相对 baseline 超过这么多，才认为可能是拨弦
+PEAK_THRESHOLD_OFFSET = 14000
+
+# 相对 baseline 超过这么多，进入左手按弦模式
+LEFT_HAND_THRESHOLD_OFFSET = 100000
+
+# 左手压力回落到这个 offset 以下，退出左手模式
+LEFT_HAND_RELEASE_OFFSET = 90000
+
+# 从左手模式起点再增加这么多，
+# 映射到升高完整的一个半音
+LEFT_HAND_FULL_PRESS_RANGE = 100000
+
+# 标准拨弦力度，用于计算音量
+STANDARD_FORCE_OFFSET = 20000
+
+# 防止一个峰值被重复触发
+PLUCK_COOLDOWN_SECONDS = 0.15
+
+
+# ==========================================================
+# INITIAL CALIBRATION CONFIG
+# ==========================================================
+
+# 启动后先自动校准所有 14 根弦
+INITIAL_CALIBRATION_ENABLED = True
+
+# 每根弦连续稳定至少 3 秒
+INITIAL_CALIBRATION_SECONDS = 3.0
+
+# 3 秒内最大值减最小值不超过 10000
+INITIAL_CALIBRATION_RANGE = 10000
+
+
+# ==========================================================
+# ADAPTIVE BASELINE CONFIG
+# ==========================================================
+
+ADAPTIVE_BASELINE_ENABLED = True
+
+# 运行过程中连续稳定至少 3 秒后更新 baseline
+BASELINE_STABLE_SECONDS = 3.0
+
+# 3 秒窗口内 max - min 不超过此值
+BASELINE_STABLE_RANGE = 10000
+
+# baseline 至少变化这么多才打印并更新
+BASELINE_MIN_UPDATE = 50
+
+PRINT_BASELINE_UPDATES = True
+
+
+# ==========================================================
+# PITCH CONFIG
+# ==========================================================
+
+MIN_SEMITONES = 0.0
+MAX_SEMITONES = 1.0
+
+PITCH_DISPLAY_STEP = 0.02
+
+# 指数平滑时间
+PITCH_SMOOTH_TIME = 0.10
+
+
+# ==========================================================
+# AUDIO CONFIG
+# ==========================================================
+
+BLOCK_SIZE = 128
+
+MIN_VOLUME = 0.05
+MAX_VOLUME = 1.0
+
+# 14 根弦同时播放时防止削波
+MASTER_GAIN = 0.25
+
+PRINT_LEFT_HAND_DATA = False
+
+# AUDIO_PATH 为空时使用的内部静音采样率
+DEFAULT_SAMPLE_RATE = 44100
+
+
+# ==========================================================
+# VALIDATE CONFIG
+# ==========================================================
+
+if len(STRING_NUMBERS) != NUM_STRINGS:
+    raise ValueError(
+        "STRING_NUMBERS 数量必须等于 NUM_STRINGS。"
+    )
+
+if len(BASELINES) != NUM_STRINGS:
+    raise ValueError(
+        "BASELINES 数量必须等于 NUM_STRINGS。"
+    )
+
+if len(AUDIO_PATHS) != NUM_STRINGS:
+    raise ValueError(
+        "AUDIO_PATHS 数量必须等于 NUM_STRINGS。"
+    )
+
+
+# ==========================================================
+# UTILITY
+# ==========================================================
+
+def clamp(value, minimum, maximum):
+    return max(minimum, min(maximum, value))
+
+
+def semitones_to_ratio(semitones):
+    return 2.0 ** (semitones / 12.0)
+
+
+def get_peak_threshold(index):
+    return (
+        BASELINES[index]
+        + PEAK_THRESHOLD_OFFSET
+    )
+
+
+def get_left_hand_threshold(index):
+    return (
+        BASELINES[index]
+        + LEFT_HAND_THRESHOLD_OFFSET
+    )
+
+
+def get_left_hand_release_threshold(index):
+    return (
+        BASELINES[index]
+        + LEFT_HAND_RELEASE_OFFSET
+    )
+
+
+def get_left_hand_max_force(index):
+    return (
+        get_left_hand_threshold(index)
+        + LEFT_HAND_FULL_PRESS_RANGE
+    )
+
+
+# ==========================================================
+# AUDIO STATE
+# ==========================================================
+
+@dataclass
+class VoiceState:
+    audio: np.ndarray
+    source_sample_rate: int
+    audio_available: bool
+
+    playing: bool = False
+    position: float = 0.0
+    volume: float = 1.0
+
+    current_semitones: float = 0.0
+    target_semitones: float = 0.0
+
+    generation: int = 0
+
+
+state_lock = threading.Lock()
+voices = []
+
+
+# ==========================================================
+# LOAD AUDIO
+# ==========================================================
+
+def load_audio_file(path):
+    """
+    返回：
+        audio_data
+        source_sample_rate
+        audio_available
+
+    路径为空时创建短静音，
+    使程序可以继续测试传感器和 baseline。
+    """
+
+    if not path.strip():
+        silence = np.zeros(
+            int(DEFAULT_SAMPLE_RATE * 0.10),
+            dtype=np.float32,
+        )
+
+        return (
+            silence,
+            DEFAULT_SAMPLE_RATE,
+            False,
+        )
+
+    audio_data, source_sample_rate = sf.read(
+        path,
+        dtype="float32",
+        always_2d=True,
+    )
+
+    audio_data = audio_data.mean(axis=1)
+
+    audio_data = np.asarray(
+        audio_data,
+        dtype=np.float32,
+    )
+
+    if len(audio_data) < 2:
+        raise ValueError(
+            f"音频文件太短，无法播放：{path}"
+        )
+
+    return (
+        audio_data,
+        source_sample_rate,
+        True,
+    )
+
+
+loaded_sample_rates = []
+
+for index, path in enumerate(AUDIO_PATHS):
+    (
+        loaded_audio,
+        loaded_sample_rate,
+        audio_available,
+    ) = load_audio_file(path)
+
+    voices.append(
+        VoiceState(
+            audio=loaded_audio,
+            source_sample_rate=loaded_sample_rate,
+            audio_available=audio_available,
+        )
+    )
+
+    if audio_available:
+        loaded_sample_rates.append(
+            loaded_sample_rate
+        )
+
+        print(
+            f"Loaded String {STRING_NUMBERS[index]}: "
+            f"{len(loaded_audio)} samples, "
+            f"{loaded_sample_rate} Hz"
+        )
+    else:
+        print(
+            f"String {STRING_NUMBERS[index]}: "
+            f"audio path is empty"
+        )
+
+
+if loaded_sample_rates:
+    OUTPUT_SAMPLE_RATE = loaded_sample_rates[0]
+else:
+    OUTPUT_SAMPLE_RATE = DEFAULT_SAMPLE_RATE
+
+print()
+print(
+    f"Output sample rate: "
+    f"{OUTPUT_SAMPLE_RATE} Hz"
+)
+
+
+# ==========================================================
+# SERIAL
+# ==========================================================
+
+serial_port = serial.Serial(
+    PORT,
+    BAUD,
+    timeout=1,
+)
+
+# ESP32 打开串口时可能会自动重启
+time.sleep(2.0)
+serial_port.reset_input_buffer()
+
+
+def read_forces():
+    """
+    读取 Arduino 的 14 路 CSV。
+
+    Arduino 当前输出顺序：
+
+    1:  String 1
+    2:  String 2
+    3:  String 3
+    4:  String 4
+    5:  String 5
+    6:  String 6
+    7:  String 7
+    8:  String 8
+    9:  String 9
+    10: String 10
+    11: String 11
+    12: 原 String 14 -> 新 String 12
+    13: 原 String 15 -> 新 String 13
+    14: 原 String 16 -> 新 String 14
+    """
+
+    while True:
+        try:
+            line = serial_port.readline().decode(
+                errors="ignore"
+            ).strip()
+
+            if not line:
+                continue
+
+            if line.startswith("#"):
+                continue
+
+            parts = line.split(",")
+
+            if len(parts) != NUM_STRINGS:
+                continue
+
+            try:
+                return [
+                    int(part.strip())
+                    for part in parts
+                ]
+
+            except ValueError:
+                continue
+
+        except serial.SerialException as error:
+            print(f"\nSerial error: {error}")
+            raise
+
+
+# ==========================================================
+# INITIAL BASELINE CALIBRATION
+# ==========================================================
+
+def calibrate_initial_baselines():
+    """
+    每根弦独立寻找一个连续 3 秒的稳定窗口。
+
+    窗口满足：
+        max(force) - min(force)
+        <= INITIAL_CALIBRATION_RANGE
+
+    满足后：
+        baseline = 窗口平均值
+
+    校准期间不要拨弦或按弦。
+    某一根弦受到干扰时，只会重等那一根，
+    不影响已经校准完成的其他弦。
+    """
+
+    if not INITIAL_CALIBRATION_ENABLED:
+        return
+
+    print()
+    print("======================================")
+    print(" Initial baseline calibration")
+    print(" Keep all strings still")
+    print("======================================")
+    print()
+
+    windows = [
+        deque()
+        for _ in range(NUM_STRINGS)
+    ]
+
+    calibrated = [
+        False
+        for _ in range(NUM_STRINGS)
+    ]
+
+    while not all(calibrated):
+        force_values = read_forces()
+        current_time = time.monotonic()
+
+        for index, force in enumerate(
+            force_values
+        ):
+            if calibrated[index]:
+                continue
+
+            window = windows[index]
+
+            window.append(
+                (current_time, force)
+            )
+
+            cutoff_time = (
+                current_time
+                - INITIAL_CALIBRATION_SECONDS
+            )
+
+            while (
+                len(window) >= 2
+                and window[1][0] <= cutoff_time
+            ):
+                window.popleft()
+
+            if len(window) < 2:
+                continue
+
+            duration = (
+                window[-1][0]
+                - window[0][0]
+            )
+
+            if (
+                duration
+                < INITIAL_CALIBRATION_SECONDS
+            ):
+                continue
+
+            values = [
+                sample_force
+                for _, sample_force in window
+            ]
+
+            value_range = (
+                max(values) - min(values)
+            )
+
+            if (
+                value_range
+                > INITIAL_CALIBRATION_RANGE
+            ):
+                continue
+
+            new_baseline = int(
+                round(
+                    sum(values)
+                    / len(values)
+                )
+            )
+
+            BASELINES[index] = new_baseline
+            calibrated[index] = True
+
+            print(
+                f"String {STRING_NUMBERS[index]} "
+                f"calibrated: "
+                f"baseline={new_baseline}, "
+                f"range={value_range}, "
+                f"samples={len(values)}"
+            )
+
+    print()
+    print("All 14 baselines calibrated.")
+    print()
+
+
+# ==========================================================
+# FORCE TO PITCH
+# ==========================================================
+
+def force_to_semitones(index, force):
+    left_threshold = (
+        get_left_hand_threshold(index)
+    )
+
+    max_force = (
+        get_left_hand_max_force(index)
+    )
+
+    force_range = (
+        max_force - left_threshold
+    )
+
+    if force_range <= 0:
+        return 0.0
+
+    normalized_force = (
+        force - left_threshold
+    ) / force_range
+
+    normalized_force = clamp(
+        normalized_force,
+        0.0,
+        1.0,
+    )
+
+    semitones = (
+        MIN_SEMITONES
+        + normalized_force
+        * (
+            MAX_SEMITONES
+            - MIN_SEMITONES
+        )
+    )
+
+    return clamp(
+        semitones,
+        MIN_SEMITONES,
+        MAX_SEMITONES,
+    )
+
+
+def set_target_pitch(index, semitones):
+    semitones = clamp(
+        semitones,
+        MIN_SEMITONES,
+        MAX_SEMITONES,
+    )
+
+    with state_lock:
+        voices[index].target_semitones = (
+            semitones
+        )
+
+
+# ==========================================================
+# TRIGGER PLUCK
+# ==========================================================
+
+def trigger_string(index, peak):
+    baseline = BASELINES[index]
+    energy = peak - baseline
+
+    if STANDARD_FORCE_OFFSET <= 0:
+        volume = 1.0
+    else:
+        volume = (
+            energy / STANDARD_FORCE_OFFSET
+        )
+
+    volume = clamp(
+        volume,
+        MIN_VOLUME,
+        MAX_VOLUME,
+    )
+
+    string_number = STRING_NUMBERS[index]
+
+    print()
+    print("==============================")
+    print(f"PLUCK — String {string_number}")
+    print(f"Peak     = {peak}")
+    print(f"Baseline = {baseline}")
+    print(f"Energy   = {energy}")
+    print(f"Volume   = {volume:.3f}")
+
+    if not voices[index].audio_available:
+        print("Audio path is empty.")
+
+    print("==============================")
+
+    with state_lock:
+        voice = voices[index]
+
+        voice.generation += 1
+        voice.position = 0.0
+        voice.volume = volume
+
+        # 每次拨弦从原音开始
+        voice.current_semitones = 0.0
+        voice.target_semitones = 0.0
+
+        voice.playing = (
+            voice.audio_available
+        )
+
+
+# ==========================================================
+# AUDIO CALLBACK
+# ==========================================================
+
+def audio_callback(
+    outdata,
+    frames,
+    time_info,
+    status,
+):
+    outdata.fill(0)
+
+    if status:
+        print(f"\nAudio status: {status}")
+
+    mixed_output = np.zeros(
+        frames,
+        dtype=np.float32,
+    )
+
+    sample_times = (
+        np.arange(
+            frames,
+            dtype=np.float64,
+        )
+        / OUTPUT_SAMPLE_RATE
+    )
+
+    for index in range(NUM_STRINGS):
+
+        with state_lock:
+            voice = voices[index]
+
+            if not voice.playing:
+                continue
+
+            local_audio = voice.audio
+            local_source_rate = (
+                voice.source_sample_rate
+            )
+
+            local_position = voice.position
+            local_volume = voice.volume
+
+            start_semitones = (
+                voice.current_semitones
+            )
+
+            local_target = (
+                voice.target_semitones
+            )
+
+            local_generation = (
+                voice.generation
+            )
+
+
+        # ----------------------------------------------
+        # PITCH SMOOTHING
+        # ----------------------------------------------
+
+        if PITCH_SMOOTH_TIME <= 0:
+            semitone_curve = np.full(
+                frames,
+                local_target,
+                dtype=np.float64,
+            )
+
+            end_semitones = local_target
+
+        else:
+            semitone_curve = (
+                local_target
+                + (
+                    start_semitones
+                    - local_target
+                )
+                * np.exp(
+                    -sample_times
+                    / PITCH_SMOOTH_TIME
+                )
+            )
+
+            block_duration = (
+                frames
+                / OUTPUT_SAMPLE_RATE
+            )
+
+            end_semitones = (
+                local_target
+                + (
+                    start_semitones
+                    - local_target
+                )
+                * math.exp(
+                    -block_duration
+                    / PITCH_SMOOTH_TIME
+                )
+            )
+
+        semitone_curve = np.clip(
+            semitone_curve,
+            MIN_SEMITONES,
+            MAX_SEMITONES,
+        )
+
+        end_semitones = clamp(
+            end_semitones,
+            MIN_SEMITONES,
+            MAX_SEMITONES,
+        )
+
+
+        # ----------------------------------------------
+        # SOURCE STEPS
+        # ----------------------------------------------
+
+        pitch_ratios = np.power(
+            2.0,
+            semitone_curve / 12.0,
+        )
+
+        sample_rate_ratio = (
+            local_source_rate
+            / OUTPUT_SAMPLE_RATE
+        )
+
+        source_steps = (
+            pitch_ratios
+            * sample_rate_ratio
+        )
+
+
+        # ----------------------------------------------
+        # SOURCE POSITIONS
+        # ----------------------------------------------
+
+        cumulative_positions = np.empty(
+            frames,
+            dtype=np.float64,
+        )
+
+        cumulative_positions[0] = 0.0
+
+        if frames > 1:
+            cumulative_positions[1:] = (
+                np.cumsum(
+                    source_steps[:-1]
+                )
+            )
+
+        source_positions = (
+            local_position
+            + cumulative_positions
+        )
+
+        valid_count = int(
+            np.count_nonzero(
+                source_positions
+                < len(local_audio)
+            )
+        )
+
+
+        # ----------------------------------------------
+        # LINEAR INTERPOLATION
+        # ----------------------------------------------
+
+        if valid_count > 0:
+            valid_positions = (
+                source_positions[:valid_count]
+            )
+
+            index_0 = np.floor(
+                valid_positions
+            ).astype(np.int64)
+
+            index_1 = np.minimum(
+                index_0 + 1,
+                len(local_audio) - 1,
+            )
+
+            fractions = (
+                valid_positions - index_0
+            ).astype(np.float32)
+
+            samples_0 = local_audio[index_0]
+            samples_1 = local_audio[index_1]
+
+            voice_output = (
+                samples_0
+                * (1.0 - fractions)
+                + samples_1
+                * fractions
+            )
+
+            voice_output *= local_volume
+
+            mixed_output[:valid_count] += (
+                voice_output.astype(
+                    np.float32
+                )
+            )
+
+
+        # ----------------------------------------------
+        # UPDATE VOICE
+        # ----------------------------------------------
+
+        next_position = (
+            local_position
+            + float(
+                np.sum(source_steps)
+            )
+        )
+
+        finished = (
+            valid_count < frames
+            or next_position
+            >= len(local_audio)
+        )
+
+        with state_lock:
+            voice = voices[index]
+
+            if (
+                voice.generation
+                == local_generation
+            ):
+                voice.current_semitones = (
+                    end_semitones
+                )
+
+                voice.position = (
+                    next_position
+                )
+
+                if finished:
+                    voice.playing = False
+                    voice.position = 0.0
+                    voice.current_semitones = 0.0
+                    voice.target_semitones = 0.0
+
+
+    mixed_output *= MASTER_GAIN
+
+    mixed_output = np.clip(
+        mixed_output,
+        -1.0,
+        1.0,
+    )
+
+    outdata[:, 0] = mixed_output
+
+
+# ==========================================================
+# DETECTION STATE
+# ==========================================================
+
+force_histories = [
+    deque(maxlen=3)
+    for _ in range(NUM_STRINGS)
+]
+
+left_hand_active = [
+    False
+    for _ in range(NUM_STRINGS)
+]
+
+last_trigger_times = [
+    0.0
+    for _ in range(NUM_STRINGS)
+]
+
+baseline_windows = [
+    deque()
+    for _ in range(NUM_STRINGS)
+]
+
+
+# ==========================================================
+# ADAPTIVE BASELINE
+# ==========================================================
+
+def reset_baseline_window(index):
+    baseline_windows[index].clear()
+
+
+def update_adaptive_baseline(
+    index,
+    force,
+    current_time,
+):
+    """
+    每根弦独立更新 baseline。
+
+    条件：
+    - 当前不在左手模式；
+    - 连续稳定至少 3 秒；
+    - 窗口内 max - min <= 10000。
+    """
+
+    if not ADAPTIVE_BASELINE_ENABLED:
+        return False
+
+    if left_hand_active[index]:
+        reset_baseline_window(index)
+        return False
+
+    window = baseline_windows[index]
+
+    window.append(
+        (current_time, force)
+    )
+
+    cutoff_time = (
+        current_time
+        - BASELINE_STABLE_SECONDS
+    )
+
+    while (
+        len(window) >= 2
+        and window[1][0] <= cutoff_time
+    ):
+        window.popleft()
+
+    if len(window) < 2:
+        return False
+
+    window_duration = (
+        window[-1][0]
+        - window[0][0]
+    )
+
+    if (
+        window_duration
+        < BASELINE_STABLE_SECONDS
+    ):
+        return False
+
+    values = [
+        sample_force
+        for _, sample_force in window
+    ]
+
+    value_range = (
+        max(values) - min(values)
+    )
+
+    if value_range > BASELINE_STABLE_RANGE:
+        return False
+
+    old_baseline = BASELINES[index]
+
+    new_baseline = int(
+        round(
+            sum(values)
+            / len(values)
+        )
+    )
+
+    if (
+        abs(
+            new_baseline
+            - old_baseline
+        )
+        < BASELINE_MIN_UPDATE
+    ):
+        window.clear()
+        window.append(
+            (current_time, force)
+        )
+        return False
+
+    BASELINES[index] = new_baseline
+
+    force_histories[index].clear()
+
+    window.clear()
+    window.append(
+        (current_time, force)
+    )
+
+    if PRINT_BASELINE_UPDATES:
+        print(
+            f"BASELINE ADAPTED — "
+            f"String {STRING_NUMBERS[index]}: "
+            f"{old_baseline} -> {new_baseline}  "
+            f"range={value_range}  "
+            f"samples={len(values)}"
+        )
+
+    return True
+
+
+# ==========================================================
+# PROCESS ONE STRING
+# ==========================================================
+
+def process_string_force(
+    index,
+    force,
+    current_time,
+):
+    string_number = STRING_NUMBERS[index]
+
+    left_threshold = (
+        get_left_hand_threshold(index)
+    )
+
+    release_threshold = (
+        get_left_hand_release_threshold(
+            index
+        )
+    )
+
+
+    # ======================================================
+    # LEFT HAND MODE
+    # ======================================================
+
+    if force >= left_threshold:
+
+        if not left_hand_active[index]:
+            left_hand_active[index] = True
+
+            reset_baseline_window(index)
+            force_histories[index].clear()
+
+            print()
+            print(
+                f"******** LEFT HAND "
+                f"String {string_number} ********"
+            )
+
+        target = force_to_semitones(
+            index,
+            force,
+        )
+
+        set_target_pitch(
+            index,
+            target,
+        )
+
+        if PRINT_LEFT_HAND_DATA:
+            displayed_pitch = (
+                round(
+                    target
+                    / PITCH_DISPLAY_STEP
+                )
+                * PITCH_DISPLAY_STEP
+            )
+
+            displayed_pitch = clamp(
+                displayed_pitch,
+                MIN_SEMITONES,
+                MAX_SEMITONES,
+            )
+
+            print(
+                f"String={string_number}  "
+                f"Force={force}  "
+                f"Pitch=+{displayed_pitch:.2f}"
+            )
+
+        return
+
+
+    if left_hand_active[index]:
+
+        if force < release_threshold:
+            left_hand_active[index] = False
+
+            set_target_pitch(
+                index,
+                0.0,
+            )
+
+            reset_baseline_window(index)
+            force_histories[index].clear()
+
+            print(
+                f"Left hand released — "
+                f"String {string_number}"
+            )
+
+        else:
+            target = force_to_semitones(
+                index,
+                force,
+            )
+
+            set_target_pitch(
+                index,
+                target,
+            )
+
+            return
+
+
+    # ======================================================
+    # ADAPTIVE BASELINE
+    # ======================================================
+
+    baseline_updated = (
+        update_adaptive_baseline(
+            index,
+            force,
+            current_time,
+        )
+    )
+
+    if baseline_updated:
+        return
+
+
+    # ======================================================
+    # THREE-POINT PEAK DETECTION
+    # ======================================================
+
+    history = force_histories[index]
+    history.append(force)
+
+    if len(history) < 3:
+        return
+
+    a, b, c = history
+
+    is_local_peak = (
+        a < b
+        and b > c
+    )
+
+    peak_energy = (
+        b - BASELINES[index]
+    )
+
+    above_peak_threshold = (
+        peak_energy
+        > PEAK_THRESHOLD_OFFSET
+    )
+
+    below_left_hand_threshold = (
+        b
+        < get_left_hand_threshold(index)
+    )
+
+    cooldown_finished = (
+        current_time
+        - last_trigger_times[index]
+        >= PLUCK_COOLDOWN_SECONDS
+    )
+
+    if (
+        is_local_peak
+        and above_peak_threshold
+        and below_left_hand_threshold
+        and cooldown_finished
+    ):
+        trigger_string(
+            index,
+            b,
+        )
+
+        last_trigger_times[index] = (
+            current_time
+        )
+
+        reset_baseline_window(index)
+        force_histories[index].clear()
+
+
+# ==========================================================
+# MAIN
+# ==========================================================
+
+def main():
+    print()
+    print("======================================")
+    print(" NoodlePadoodle 14-String Demo")
+    print(f" Serial port: {PORT}")
+    print("======================================")
+    print()
+
+    print("Arduino CSV order:")
+    print(
+        "S1,S2,S3,S4,S5,S6,S7,"
+        "S8,S9,S10,S11,S12,S13,S14"
+    )
+
+    print()
+    print("Renaming:")
+    print("Arduino column 12 = old String 14")
+    print("Arduino column 13 = old String 15")
+    print("Arduino column 14 = old String 16")
+
+    calibrate_initial_baselines()
+
+    print("Current baselines:")
+
+    for index in range(NUM_STRINGS):
+        print(
+            f"String {STRING_NUMBERS[index]}: "
+            f"{BASELINES[index]}"
+        )
+
+    print()
+    print(
+        f"Peak offset: "
+        f"+{PEAK_THRESHOLD_OFFSET}"
+    )
+
+    print(
+        f"Left-hand entry offset: "
+        f"+{LEFT_HAND_THRESHOLD_OFFSET}"
+    )
+
+    print(
+        f"Left-hand release offset: "
+        f"+{LEFT_HAND_RELEASE_OFFSET}"
+    )
+
+    print(
+        f"Maximum pitch bend: "
+        f"+{MAX_SEMITONES:.2f} semitone"
+    )
+
+    print(
+        f"Adaptive baseline: "
+        f"{'ON' if ADAPTIVE_BASELINE_ENABLED else 'OFF'}"
+    )
+
+    print()
+    print("Ready!")
+    print()
+
+    stream = sd.OutputStream(
+        samplerate=OUTPUT_SAMPLE_RATE,
+        channels=1,
+        dtype="float32",
+        blocksize=BLOCK_SIZE,
+        latency="low",
+        callback=audio_callback,
+    )
+
+    stream.start()
+
+    try:
+        while True:
+            force_values = read_forces()
+            current_time = time.monotonic()
+
+            for index, force in enumerate(
+                force_values
+            ):
+                process_string_force(
+                    index,
+                    force,
+                    current_time,
+                )
+
+    except KeyboardInterrupt:
+        print("\nProgram stopped.")
+
+    finally:
+        stream.stop()
+        stream.close()
+
+        if serial_port.is_open:
+            serial_port.close()
+
+
+if __name__ == "__main__":
+    main()
